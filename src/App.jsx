@@ -208,7 +208,7 @@ const HomeView = ({ setTab, refreshTrigger }) => {
         ) : (
           <div className="flex overflow-x-auto gap-3 pb-2 snap-x">
             {expiringSoon.map(item => (
-              <div key={item.id} className={`flex-shrink-0 w-36 p-3 rounded-xl border snap-start ${getExpiryColor(item.days)}`}>
+              <div key={item.id} className={`shrink-0 w-36 p-3 rounded-xl border snap-start ${getExpiryColor(item.days)}`}>
                 <h3 className="font-semibold truncate">{item.name}</h3>
                 <p className="text-sm mt-1 opacity-80">
                   {item.days < 0 ? 'Expired' : item.days === 0 ? 'Today' : `In ${item.days} days`}
@@ -574,7 +574,7 @@ const PantryView = ({ refreshTrigger, onUpdate }) => {
                 type="button"
                 key={days}
                 onClick={() => setNewItem({...newItem, days})}
-                className={`px-4 py-2 rounded-lg text-sm font-medium flex-shrink-0 transition-colors ${newItem.days === days ? 'bg-emerald-600 text-white' : 'bg-gray-100 text-gray-600'}`}
+                className={`px-4 py-2 rounded-lg text-sm font-medium shrink-0 transition-colors ${newItem.days === days ? 'bg-emerald-600 text-white' : 'bg-gray-100 text-gray-600'}`}
               >
                 +{days} days
               </button>
