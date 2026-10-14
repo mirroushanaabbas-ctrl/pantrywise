@@ -3,7 +3,7 @@ import {
   Home, ShoppingCart, Archive, ChefHat, LineChart, 
   Plus, Trash2, CheckCircle, AlertTriangle, X, 
   ChevronRight, Calculator, IndianRupee, Clock,
-  Smartphone, Info
+  Smartphone, Info, Pencil
 } from 'lucide-react';
 
 // 1. Database Setup (LocalStorage mock replacing Dexie for compatibility)
@@ -324,10 +324,8 @@ const OptimizerModal = ({ onClose, listItems }) => {
   useEffect(() => {
     const computeOptimizedBasket = async () => {
       setLoading(true);
-      // Fetch fresh data for optimization
       const stores = await db.stores.toArray();
       const allQuotes = await db.priceQuotes.toArray();
-      
       const unCheckedItems = listItems.filter(i => !i.isChecked);
       
       if (unCheckedItems.length === 0) {
@@ -336,7 +334,6 @@ const OptimizerModal = ({ onClose, listItems }) => {
         return;
       }
 
-      // 1. Map list items to available quotes
       const itemQuotes = unCheckedItems.map(item => {
         const quotesForThisItem = allQuotes.filter(q => 
           q.itemName.toLowerCase().includes(item.name.toLowerCase()) || 
@@ -345,7 +342,6 @@ const OptimizerModal = ({ onClose, listItems }) => {
         return { item, quotes: quotesForThisItem };
       });
 
-      // 2. Evaluate single store plans
       const generatedPlans = [];
       
       stores.forEach(store => {
@@ -359,9 +355,6 @@ const OptimizerModal = ({ onClose, listItems }) => {
             itemsTotal += storeQuote.price;
             itemsMap.push({ itemName: item.name, price: storeQuote.price, store: store.name });
           } else {
-            // Missing item logic - for MVP we assign a high arbitrary cost if missing, 
-            // or just flag it. Let's assume average market price * 1.2 if missing for simplicity,
-            // or just flag as missing.
             missing.push(item.name);
           }
         });
@@ -369,7 +362,7 @@ const OptimizerModal = ({ onClose, listItems }) => {
         const deliveryCost = itemsTotal >= store.freeDeliveryThreshold ? 0 : store.deliveryFee;
         const total = itemsTotal + deliveryCost;
 
-        if (missing.length < unCheckedItems.length) { // At least has something
+        if (missing.length < unCheckedItems.length) { 
           generatedPlans.push({
             id: `single-${store.id}`,
             title: `Shop only at ${store.name}`,
@@ -384,9 +377,8 @@ const OptimizerModal = ({ onClose, listItems }) => {
         }
       });
 
-      // 3. Evaluate Split Plan (Cheapest possible item-by-item across all stores)
       let splitItemsTotal = 0;
-      let storeTotals = {}; // Track subtotal per store to calculate delivery
+      let storeTotals = {};
       let splitMissing = [];
       let splitItemsMap = [];
 
@@ -395,7 +387,6 @@ const OptimizerModal = ({ onClose, listItems }) => {
           splitMissing.push(item.name);
           return;
         }
-        // Find cheapest quote
         const bestQuote = quotes.reduce((prev, curr) => prev.price < curr.price ? prev : curr);
         const store = stores.find(s => s.id === bestQuote.storeId);
         
@@ -431,12 +422,10 @@ const OptimizerModal = ({ onClose, listItems }) => {
         });
       }
 
-      // Sort by total cost
       generatedPlans.sort((a, b) => a.total - b.total);
       
-      // Simulate network delay for effect
       setTimeout(() => {
-        setPlans(generatedPlans.slice(0, 3)); // Top 3 plans
+        setPlans(generatedPlans.slice(0, 3)); 
         setLoading(false);
       }, 800);
     };
@@ -545,14 +534,13 @@ const PantryView = ({ refreshTrigger, onUpdate }) => {
       await db.wasteLog.add({
         date: new Date().toISOString(),
         itemName: name,
-        cost: 50 // Mock estimated cost for MVP
+        cost: 50 
       });
     }
     await db.pantryItems.delete(id);
     onUpdate();
   };
 
-  // Group items by urgency
   const sortedItems = pantryItems
     .map(item => ({ ...item, daysLeft: getDaysUntil(item.expiryDate) }))
     .sort((a, b) => a.daysLeft - b.daysLeft);
@@ -631,26 +619,68 @@ const PantryView = ({ refreshTrigger, onUpdate }) => {
 
 const RecipesView = ({ refreshTrigger, onUpdate }) => {
   const pantryItems = useLiveQuery(() => db.pantryItems.toArray(), [refreshTrigger]) || [];
-  const allRecipes = useLiveQuery(() => db.recipes.toArray(), []) || [];
+  const allRecipes = useLiveQuery(() => db.recipes.toArray(), [refreshTrigger]) || [];
+
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [recipeForm, setRecipeForm] = useState({ name: '', ingredients: '', time: 30 });
 
   const pantryNames = pantryItems.map(i => i.name.toLowerCase());
 
   const handleAddMissing = async (recipe) => {
-    // 1. Find which ingredients from the recipe are not in the pantry
     const missingIngredients = recipe.ingredients.filter(ing => {
       return !pantryNames.some(p => p.includes(ing.toLowerCase()) || ing.toLowerCase().includes(p));
     });
     
-    // 2. Add them to the shopping list DB
     for (const ing of missingIngredients) {
       await db.listItems.add({ name: ing, isChecked: false, priority: 'Need' });
     }
     
-    // 3. Trigger a re-render so the rest of the app updates
     if (onUpdate) onUpdate();
   };
 
-  // Calculate match percentage and boost if using expiring items
+  const handleOpenForm = (recipe = null) => {
+    if (recipe) {
+      setEditingId(recipe.id);
+      setRecipeForm({
+        name: recipe.name,
+        ingredients: recipe.ingredients.join(', '),
+        time: recipe.time
+      });
+    } else {
+      setEditingId(null);
+      setRecipeForm({ name: '', ingredients: '', time: 30 });
+    }
+    setIsFormOpen(true);
+  };
+
+  const handleSaveRecipe = async (e) => {
+    e.preventDefault();
+    if (!recipeForm.name.trim() || !recipeForm.ingredients.trim()) return;
+
+    const newRecipe = {
+      name: recipeForm.name.trim(),
+      ingredients: recipeForm.ingredients.split(',').map(i => i.trim()).filter(i => i),
+      time: parseInt(recipeForm.time, 10) || 0
+    };
+
+    if (editingId) {
+      await db.recipes.update(editingId, newRecipe);
+    } else {
+      await db.recipes.add(newRecipe);
+    }
+
+    setIsFormOpen(false);
+    if (onUpdate) onUpdate();
+  };
+
+  const handleDeleteRecipe = async (id) => {
+    if (window.confirm("Are you sure you want to delete this recipe?")) {
+      await db.recipes.delete(id);
+      if (onUpdate) onUpdate();
+    }
+  };
+
   const recipesWithScores = allRecipes.map(recipe => {
     let matchCount = 0;
     let boost = 0;
@@ -660,12 +690,12 @@ const RecipesView = ({ refreshTrigger, onUpdate }) => {
       if (pItem) {
         matchCount++;
         const daysLeft = getDaysUntil(pItem.expiryDate);
-        if (daysLeft <= 3) boost += 2; // High boost for urgent items
-        else if (daysLeft <= 7) boost += 1; // Minor boost
+        if (daysLeft <= 3) boost += 2; 
+        else if (daysLeft <= 7) boost += 1; 
       }
     });
 
-    const matchPercentage = (matchCount / recipe.ingredients.length) * 100;
+    const matchPercentage = (matchCount / (recipe.ingredients.length || 1)) * 100;
     const finalScore = matchPercentage + (boost * 10);
 
     return { ...recipe, matchPercentage, finalScore, matchCount };
@@ -673,54 +703,130 @@ const RecipesView = ({ refreshTrigger, onUpdate }) => {
 
   return (
     <div className="p-4 flex flex-col h-full animate-in fade-in">
-      <header className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-800">Smart Recipes</h1>
-        <p className="text-gray-500 text-sm">Based on what you have & what's expiring</p>
+      <header className="flex justify-between items-center mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-800">Smart Recipes</h1>
+          <p className="text-gray-500 text-sm">Based on what you have & expiring</p>
+        </div>
+        <button onClick={() => handleOpenForm(null)} className="p-3 bg-orange-100 text-orange-600 rounded-full active:bg-orange-200 shadow-sm">
+          <Plus size={20} />
+        </button>
       </header>
 
       <div className="flex-1 overflow-y-auto space-y-4 pb-20">
-        {recipesWithScores.map((recipe, idx) => (
-          <div key={recipe.id} className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm relative overflow-hidden">
-            {idx === 0 && recipe.finalScore > 50 && (
-              <div className="absolute top-0 right-0 bg-amber-400 text-amber-900 text-xs font-bold px-3 py-1 rounded-bl-lg flex items-center gap-1">
-                <Clock size={12} /> Saves Expiring Food
+        {recipesWithScores.length === 0 ? (
+          <div className="text-center text-gray-400 mt-10">No recipes yet. Tap + to add one!</div>
+        ) : (
+          recipesWithScores.map((recipe, idx) => (
+            <div key={recipe.id} className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm relative overflow-hidden group">
+              {idx === 0 && recipe.finalScore > 50 && (
+                <div className="absolute top-0 right-0 bg-amber-400 text-amber-900 text-xs font-bold px-3 py-1 rounded-bl-lg flex items-center gap-1">
+                  <Clock size={12} /> Saves Expiring Food
+                </div>
+              )}
+              
+              <div className="flex justify-between items-start mt-2 mb-1">
+                <h3 className="font-bold text-lg text-gray-800">{recipe.name}</h3>
+                <div className="flex gap-2">
+                  <button onClick={() => handleOpenForm(recipe)} className="text-gray-400 hover:text-blue-500 bg-gray-50 p-1.5 rounded-lg">
+                    <Pencil size={16} />
+                  </button>
+                  <button onClick={() => handleDeleteRecipe(recipe.id)} className="text-gray-400 hover:text-rose-500 bg-gray-50 p-1.5 rounded-lg">
+                    <Trash2 size={16} />
+                  </button>
+                </div>
               </div>
-            )}
-            <h3 className="font-bold text-lg text-gray-800 mb-1 mt-2">{recipe.name}</h3>
-            
-            <div className="flex items-center gap-4 text-sm text-gray-500 mb-4">
-              <span className="flex items-center gap-1"><Clock size={14} /> {recipe.time} mins</span>
-              <span className="flex items-center gap-1 text-emerald-600 font-medium">
-                <CheckCircle size={14} /> {recipe.matchCount}/{recipe.ingredients.length} ingredients
-              </span>
-            </div>
+              
+              <div className="flex items-center gap-4 text-sm text-gray-500 mb-4">
+                <span className="flex items-center gap-1"><Clock size={14} /> {recipe.time} mins</span>
+                <span className="flex items-center gap-1 text-emerald-600 font-medium">
+                  <CheckCircle size={14} /> {recipe.matchCount}/{recipe.ingredients.length} ingredients
+                </span>
+              </div>
 
-            <div className="bg-gray-50 rounded-xl p-3">
-              <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Ingredients</h4>
-              <ul className="text-sm space-y-1">
-                {recipe.ingredients.map(ing => {
-                  const hasIng = pantryNames.some(p => p.includes(ing.toLowerCase()) || ing.toLowerCase().includes(p));
-                  return (
-                    <li key={ing} className={`flex items-center gap-2 ${hasIng ? 'text-gray-800' : 'text-gray-400'}`}>
-                      <div className={`w-1.5 h-1.5 rounded-full ${hasIng ? 'bg-emerald-500' : 'bg-gray-300'}`}></div>
-                      {ing} {hasIng ? '' : '(missing)'}
-                    </li>
-                  )
-                })}
-              </ul>
+              <div className="bg-gray-50 rounded-xl p-3">
+                <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Ingredients</h4>
+                <ul className="text-sm space-y-1">
+                  {recipe.ingredients.map((ing, i) => {
+                    const hasIng = pantryNames.some(p => p.includes(ing.toLowerCase()) || ing.toLowerCase().includes(p));
+                    return (
+                      <li key={i} className={`flex items-center gap-2 ${hasIng ? 'text-gray-800' : 'text-gray-400'}`}>
+                        <div className={`w-1.5 h-1.5 rounded-full ${hasIng ? 'bg-emerald-500' : 'bg-gray-300'}`}></div>
+                        {ing} {hasIng ? '' : '(missing)'}
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
+              
+              {recipe.matchCount < recipe.ingredients.length && (
+                <button 
+                  onClick={() => handleAddMissing(recipe)}
+                  className="w-full mt-4 py-2 bg-indigo-50 text-indigo-700 font-medium rounded-xl text-sm active:bg-indigo-100 hover:bg-indigo-100 transition-colors"
+                >
+                  Add missing to list
+                </button>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Slide-up Form Modal */}
+      {isFormOpen && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex flex-col justify-end">
+          <div className="bg-white w-full rounded-t-3xl shadow-2xl flex flex-col animate-in slide-in-from-bottom-full duration-300">
+            <div className="flex justify-between items-center p-5 border-b">
+              <h2 className="text-xl font-bold text-gray-800">{editingId ? 'Edit Recipe' : 'New Recipe'}</h2>
+              <button onClick={() => setIsFormOpen(false)} className="p-2 bg-gray-100 rounded-full hover:bg-gray-200">
+                <X size={20} />
+              </button>
             </div>
             
-            {recipe.matchCount < recipe.ingredients.length && (
-              <button 
-                onClick={() => handleAddMissing(recipe)}
-                className="w-full mt-4 py-2 bg-indigo-50 text-indigo-700 font-medium rounded-xl text-sm active:bg-indigo-100 hover:bg-indigo-100 transition-colors"
-              >
-                Add missing to list
+            <form onSubmit={handleSaveRecipe} className="p-5 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Recipe Name</label>
+                <input 
+                  type="text" 
+                  required
+                  value={recipeForm.name}
+                  onChange={e => setRecipeForm({...recipeForm, name: e.target.value})}
+                  placeholder="e.g. Family Chicken Curry"
+                  className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Ingredients (comma separated)</label>
+                <textarea 
+                  required
+                  value={recipeForm.ingredients}
+                  onChange={e => setRecipeForm({...recipeForm, ingredients: e.target.value})}
+                  placeholder="Chicken, Onions, Tomatoes, Garlic Paste"
+                  rows="3"
+                  className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none resize-none"
+                ></textarea>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Time (minutes)</label>
+                <input 
+                  type="number" 
+                  min="1"
+                  required
+                  value={recipeForm.time}
+                  onChange={e => setRecipeForm({...recipeForm, time: e.target.value})}
+                  className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
+                />
+              </div>
+
+              <button type="submit" className="w-full mt-2 bg-orange-500 text-white py-3.5 rounded-xl font-bold hover:bg-orange-600 active:scale-95 transition-all">
+                Save Recipe
               </button>
-            )}
+            </form>
           </div>
-        ))}
-      </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -789,10 +895,8 @@ export default function App() {
   const triggerUpdate = () => setRefreshTrigger(prev => prev + 1);
 
   useEffect(() => {
-    // Initialize DB and seed
     seedDatabase().then(() => triggerUpdate());
 
-    // Inject simulated PWA meta tags dynamically for completeness
     const meta = document.createElement('meta');
     meta.name = 'theme-color';
     meta.content = '#059669';
@@ -820,10 +924,8 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gray-50 flex justify-center font-sans text-gray-900 selection:bg-emerald-200">
-      {/* Mobile container constraint for desktop viewing */}
       <div className="w-full max-w-md bg-white h-screen flex flex-col relative shadow-2xl overflow-hidden">
         
-        {/* Mock PWA Install Banner */}
         {showInstallBanner && (
           <div className="bg-indigo-600 text-white p-3 flex justify-between items-center z-50">
             <div className="flex items-center gap-3">
@@ -841,15 +943,12 @@ export default function App() {
           </div>
         )}
 
-        {/* Top Safe Area / Status Bar space simulation */}
         <div className="h-safe-top bg-white"></div>
 
-        {/* Main scrollable content area */}
         <main className="flex-1 overflow-x-hidden overflow-y-auto relative">
           {renderContent()}
         </main>
 
-        {/* Bottom Navigation Bar */}
         <nav className="border-t bg-white pb-safe-bottom">
           <div className="flex justify-around items-center h-16 px-2">
             {navItems.map(item => {
